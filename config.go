@@ -4,13 +4,11 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"regexp"
 )
 
 type config struct {
-	Session      string
-	AuthToken    string
-	VimeoIdRegex *regexp.Regexp
+	Session   string
+	AuthToken string
 }
 
 func getConfig() *config {
