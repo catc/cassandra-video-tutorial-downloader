@@ -2,16 +2,14 @@ package main
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Tutorial struct {
-	TutorialURL  string
-	VimeoID      string
-	Filename     string
-	VideoSources []struct {
-		Height int
-		Url    string
-	}
+	TutorialURL string // original tutorial url on datastax site
+	Filename    string // name of file
+	VideoURL    string
+	Config      *config
 }
 
 func main() {
@@ -23,14 +21,20 @@ func main() {
 		"https://academy.datastax.com/courses/ds220-data-modeling/quick-wins-challenge-1",
 	}
 
-	var tutorials = []Tutorial{}
 	for _, u := range rawTutorialUrls {
-		tutorials = append(tutorials, Tutorial{
+		split := strings.Split(u, "/")
+		name := split[len(split)-1]
+		t := Tutorial{
 			TutorialURL: u,
-		})
+			Filename:    name,
+			Config:      config,
+		}
+
+		go processURL(&t)
 	}
 
-	fmt.Println(config)
+	var input string
+	fmt.Scanln(&input)
 
 	// parseVimeoSrc("133680477")
 

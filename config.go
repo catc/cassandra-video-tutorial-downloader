@@ -7,7 +7,6 @@ import (
 )
 
 type config struct {
-	Session   string
 	AuthToken string
 }
 

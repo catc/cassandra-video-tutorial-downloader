@@ -11,6 +11,8 @@ import (
 	"regexp"
 
 	// ---
+	"log"
+	"path/filepath"
 	"strings"
 )
 
@@ -24,27 +26,27 @@ type VideoSources struct {
 	Url    string
 }
 
-func parseVimeoSrc(id string) error {
-	// url := "https://player.vimeo.com/video/133680477"
-	url := VIMEO_PREFIX + id
+func parseVimeoSrc(id string) ([]VideoSources, error) {
+	var sources = []VideoSources{}
 
+	url := VIMEO_PREFIX + id
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println("failed to create request")
-		return err
+		return sources, err
 	}
 
 	client := &http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
 		fmt.Println("failed to get response")
-		return err
+		return sources, err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		fmt.Println("request failed to return OK")
-		return err
+		return sources, err
 	}
 
 	// ready body and convert to string
@@ -54,27 +56,23 @@ func parseVimeoSrc(id string) error {
 	// parse content into json strings
 	match := VIMEO_SOURCE_REGEX.FindString(str)
 	if match == "" {
-		return errors.New("Could not find 'progressive' object containing video sources")
+		return sources, errors.New("Could not find 'progressive' object containing video sources")
 	}
 	// parse out `progressive: ` to get array of video sources
 	match = strings.TrimLeft(match, "\"progressive:\"")
 
 	bytes := []byte(match)
-	var sources = []VideoSources{}
 
 	err = json.Unmarshal(bytes, &sources)
 	if err != nil {
-		fmt.Println(err)
-		return err
+		return sources, err
 	}
 
-	// TODO - do something with the video sources
-	fmt.Println(sources)
-
-	return nil
+	return sources, nil
 }
 
-func downloadFile(filepath string, url string) (err error) {
+// func downloadFile(filename string, url string) (err error) {
+func downloadFile(t *Tutorial) (err error) {
 	/*
 		TODO
 		- add support for title
@@ -93,15 +91,21 @@ func downloadFile(filepath string, url string) (err error) {
 			- https://github.com/cavaliercoder/grab
 	*/
 
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fp := filepath.Join(dir, "vids", t.Filename+".mp4")
+
 	// Create the file
-	out, err := os.Create(filepath)
+	out, err := os.Create(fp)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
 	// Get the data
-	resp, err := http.Get(url)
+	resp, err := http.Get(t.VideoURL)
 	if err != nil {
 		return err
 	}

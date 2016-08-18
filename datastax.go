@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"regexp"
-	"strings"
 )
 
 var VIMEO_ID_REGEX = regexp.MustCompile(`id="vimeo-([0-9]+)"`)
@@ -18,8 +17,7 @@ func getVimeoId(c *config, url string) (string, error) {
 		return "", err
 	}
 
-	cookie := strings.Join([]string{c.Session, c.AuthToken}, "; ")
-	fmt.Println(cookie)
+	cookie := c.AuthToken
 	req.Header.Add("Cookie", cookie)
 
 	client := &http.Client{}
