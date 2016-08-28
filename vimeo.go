@@ -6,20 +6,19 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
-	"regexp"
-
-	// ---
-	"log"
 	"path/filepath"
-	"strings"
+	"regexp"
+	"strconv"
+
+	"./progress"
 )
 
 const VIMEO_PREFIX = "https://player.vimeo.com/video/"
 
-// var VIMEO_SOURCE_REGEX = regexp.MustCompile(`\(function\(e,a\)\{var t\=(.+?)\;if`)
-var VIMEO_SOURCE_REGEX = regexp.MustCompile(`\"progressive\"\:(.+?)\]`)
+var VIMEO_SOURCE_REGEX = regexp.MustCompile(`\"progressive\"\:(.+?\])`)
 
 type VideoSources struct {
 	Height int
@@ -53,15 +52,12 @@ func parseVimeoSrc(id string) ([]VideoSources, error) {
 	data, err := ioutil.ReadAll(res.Body)
 	str := string(data[:])
 
-	// parse content into json strings
-	match := VIMEO_SOURCE_REGEX.FindString(str)
-	if match == "" {
+	match := VIMEO_SOURCE_REGEX.FindStringSubmatch(str)
+	if len(match) < 1 {
 		return sources, errors.New("Could not find 'progressive' object containing video sources")
 	}
-	// parse out `progressive: ` to get array of video sources
-	match = strings.TrimLeft(match, "\"progressive:\"")
 
-	bytes := []byte(match)
+	bytes := []byte(match[1])
 
 	err = json.Unmarshal(bytes, &sources)
 	if err != nil {
@@ -71,51 +67,92 @@ func parseVimeoSrc(id string) ([]VideoSources, error) {
 	return sources, nil
 }
 
-// func downloadFile(filename string, url string) (err error) {
 func downloadFile(t *Tutorial) (err error) {
-	/*
-		TODO
-		- add support for title
-		- add command line animation
-			- https://github.com/tj/go-spin/blob/master/spin.go
-			- https://github.com/sethgrid/multibar/blob/master/multibar.go
-			- http://stackoverflow.com/questions/30532886/golang-dynamic-progressbar
-			- https://github.com/cheggaaa/pb
-			- https://github.com/mitchellh/ioprogress
-			- http://stackoverflow.com/questions/22421375/how-to-print-the-bytes-while-the-file-is-being-downloaded-golang
-		- get download size from content length header
-			- https://www.socketloop.com/tutorials/golang-get-download-file-size
-			- http://code.runnable.com/VJHbrd73QVQn_ifr/go-print-all-http-headers-from-a-url-for-golang-and-download
-		- add parallel downloads
-			- http://cavaliercoder.com/blog/downloading-large-files-in-go.html
-			- https://github.com/cavaliercoder/grab
-	*/
-
+	// generate filepath
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
 	fp := filepath.Join(dir, "vids", t.Filename+".mp4")
 
-	// Create the file
-	out, err := os.Create(fp)
+	// create the file
+	dist, err := os.Create(fp)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer dist.Close()
 
-	// Get the data
+	// get the data
 	resp, err := http.Get(t.VideoURL)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// Writer the body to file
-	_, err = io.Copy(out, resp.Body)
+	// get size
+	downloadSize, _ := strconv.Atoi(resp.Header.Get("Content-Length"))
+
+	// made custom ReadCloser
+	src := &ReaderStatus{
+		ReadCloser:   resp.Body, // this is the reader
+		Total:        int64(downloadSize),
+		Downloaded:   0,
+		ProgressBars: t.ProgressBars,
+		Bar:          t.Bar,
+	}
+
+	_, err = io.Copy(dist, src)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+type ReaderStatus struct {
+	io.ReadCloser
+	Total      int64   // total file length
+	Downloaded int64   // current number of bytes downloaded
+	CurrentBar float32 // current '=' in progress bar
+
+	ProgressBars *progress.ProgressBars
+	Bar          *progress.Bar
+}
+
+func (rs *ReaderStatus) Read(p []byte) (int, error) {
+	n, err := rs.ReadCloser.Read(p)
+
+	pb := rs.ProgressBars
+	bar := rs.Bar
+
+	if err == nil {
+		rs.Downloaded += int64(n)
+
+		// only update progress based on bar length increments
+		progress := float64(rs.Downloaded) / float64(rs.Total)
+
+		totalBars := float64(bar.BarLength)
+		barIncrement := 100 / totalBars
+
+		currentIncrement := progress * totalBars // float64
+		currentWithIncrement := float64(rs.CurrentBar) + barIncrement
+
+		if currentIncrement >= currentWithIncrement {
+			// update current bar status on reader
+			rs.CurrentBar = float32(currentIncrement)
+
+			// update progress bar
+			pb.SetBarProps(bar, float32(progress), "")
+		}
+	}
+
+	if err == io.EOF {
+		// update bar status to 100%
+		pb.SetBarProps(bar, 1, "Completed")
+
+		// mark bar as done
+		defer pb.CompletedBar()
+	}
+
+	return n, err
 }
